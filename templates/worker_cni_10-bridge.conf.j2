@@ -1,0 +1,19 @@
+{
+    "cniVersion": "0.3.1",
+    "name": "bridge",
+    "type": "bridge",
+    "bridge": "cnio0",
+    "isGateway": true,
+    "ipMasq": true,
+    "ipam": {
+        "type": "host-local",
+        "ranges": [
+{% for item in worker_instances %}
+{% if item.name == ansible_hostname %}
+          [{"subnet": "{{ item.pod_cidr }}"}]
+{% endif %}
+{% endfor %}
+        ],
+        "routes": [{"dst": "0.0.0.0/0"}]
+    }
+}

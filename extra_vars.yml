@@ -1,0 +1,87 @@
+---
+controller_instances:
+  - name: controller-1
+    public_ip: 192.168.0.111
+    private_ip: 192.168.0.111
+  - name: controller-2
+    public_ip: 192.168.0.112
+    private_ip: 192.168.0.112
+  - name: controller-3
+    public_ip: 192.168.0.113
+    private_ip: 192.168.0.113
+
+controller_interface: ens3
+
+worker_instances:
+  - name: worker-1
+    public_ip: 192.168.0.121
+    private_ip: 192.168.0.121
+    pod_cidr: 10.200.121.0/24
+  - name: worker-2
+    public_ip: 192.168.0.122
+    private_ip: 192.168.0.122
+    pod_cidr: 10.200.122.0/24
+  - name: worker-3
+    public_ip: 192.168.0.123
+    private_ip: 192.168.0.123
+    pod_cidr: 10.200.123.0/24
+
+lb_instances:
+  - name: lb-1
+    public_ip: 192.168.0.101
+    private_ip: 192.168.0.101
+
+api_server_ip_list:
+  - 192.168.0.111
+  - 192.168.0.112
+  - 192.168.0.113
+
+k8s_api_public_address: 192.168.0.101
+service_cluster_ip_range: 10.32.0.0/24
+service_cluster_api_ip: 10.32.0.1
+service_cluster_dns_ip: 10.32.0.10
+service_cluster_hostname_list:
+  - controller-1
+  - controller-2
+  - controller-3
+  - kubernetes
+  - kubernetes.default
+  - kubernetes.default.svc
+  - kubernetes.default.svc.cluster
+  - kubernetes.svc.cluster.local
+  - 192.168.0.101
+cluster_cidr: 10.200.0.0/16
+
+haproxy_exposed_ports:
+  - 6443
+proxy_frontend:
+  - name: healthz
+    #bind_address: '*'
+    bind_interface: ens3
+    bind_port: 6443
+    mode: tcp
+    ssl_enabled: False
+    backend: healthz
+    pem_path: /etc/haproxy/
+proxy_backend:
+#  - name: controller
+#    server: "{{ controller_instances | selectattr('private_ip', 'defined') | map(attribute='private_ip') | list }}"
+  - name: healthz
+    members: "{{ controller_instances }}"
+    port: 6443
+    mode: tcp
+    
+
+#https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/master/docs/06-data-encryption-keys.md
+encryption_key: 404KBPbLCOoIMS/a7ewSDVI0m5WcjjVhcCtV82XLi3A=
+
+
+haproxy_global:
+  socket: /run/haproxy/admin.sock
+  maxconn: 4096
+
+
+local_temp: /tmp/gencert-for-k8s-hardway
+cert_source: "{{ local_temp }}"
+gencert_module_directory: /home/phchoi/git/automate-k8s-the-hardway/gencert-for-k8s-hardway
+#role_path: /home/phchoi/git/automate-k8s-the-hardway

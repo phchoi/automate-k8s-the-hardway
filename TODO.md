@@ -1,0 +1,5 @@
+- Decouple the play to different roles, for example, move worker to one role and then controller to another.
+- add notify for installation/upgrade of k8s binary files
+- add notify for Cert refresh 
+- tidy up cert being copied to /root on worker/controller nodes
+- install depending ansible role to ansible role path

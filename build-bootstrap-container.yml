@@ -1,0 +1,58 @@
+- name: Build a container image as cli env to bootstrap k8s
+  hosts: build_node
+  roles: 
+    - gencert-for-k8s-hardway
+
+- name: Run an container for SSL cert generation
+  hosts: build_node
+  tasks:
+    - name: create docker
+      docker_container:
+        name: gencert-for-k8s-hardway
+        image: gencert-for-k8s-hardway
+        state: started
+        interactive: yes
+        command: /bin/bash
+        tty: yes
+
+    - name: copy worker's SSL cert to worker nodes
+      shell: "scp {{ cert_source }}/{{ item.name }}.pem root@{{ item.private_ip }}:/root/"
+      with_items: "{{ worker_instances }}"
+
+    - name: copy worker's SSL key to controller nodes
+      shell: "scp {{ cert_source }}/{{ item.name }}-key.pem root@{{ item.private_ip }}:/root/"
+      with_items: "{{ worker_instances }}"
+ 
+    - name: copy SSL cert to worker nodes
+      shell: "scp {{ cert_source }}/{{ item[1] }}.pem root@{{ item[0].private_ip }}:/root/"
+      with_nested:
+        - "{{ worker_instances }}"
+        - ['ca', 'ca-key']
+ 
+    - name: copy SSL cert to controller nodes
+      shell: "scp {{ cert_source }}/{{ item[1] }}.pem root@{{ item[0].private_ip }}:/root/"
+      with_nested:
+        - "{{ controller_instances }}"
+        - ['ca', 'ca-key', 'kubernetes', 'kubernetes-key', 'service-account', 'service-account-key' ]
+ 
+    - name: copy kubeconfig to worker nodes
+      shell: "scp {{ cert_source }}/{{ item.name }}.kubeconfig root@{{ item.private_ip }}:/root/"
+      with_items: "{{ worker_instances }}"
+ 
+    - name: copy kube-proxy.kubeconfig to worker nodes
+      shell: "scp {{ cert_source }}/{{ item[1] }}.kubeconfig root@{{ item[0].private_ip }}:/root/"
+      with_nested:
+        - "{{ worker_instances }}"
+        - ['kube-proxy']
+
+    - name: copy admin kubeconfig to controller nodes
+      shell: "scp {{ cert_source }}/{{ item[1] }}.kubeconfig root@{{ item[0].private_ip }}:/root/"
+      with_nested:
+        - "{{ controller_instances }}"
+        - ['admin','kube-controller-manager','kube-scheduler']
+
+    - name: copy encryption-config to controller nodes
+      shell: "scp {{ cert_source }}/{{ item[1] }} root@{{ item[0].private_ip }}:/root/"
+      with_nested:
+        - "{{ controller_instances }}"
+        - ['encryption-config.yaml']

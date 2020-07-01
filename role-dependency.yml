@@ -1,0 +1,15 @@
+- name: Install required ansible role module
+  hosts: build_node
+  tasks:
+#    - name: cleanup gencert module directory
+#      file:
+#        path: "{{ gencert_module_directory }}"
+#        state: absent
+
+    # should have this install to ansible role path later
+    - name: git clone gencert module directory
+      git: 
+        repo: https://github.com/phchoi/gencert-for-k8s-hardway.git
+        dest: "{{ gencert_module_directory }}"
+        version: master
+

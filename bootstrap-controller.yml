@@ -1,0 +1,285 @@
+# https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/master/docs/07-bootstrapping-etcd.md
+- name: Setup controller
+  hosts: controller
+  gather_facts: yes
+  become: true
+  become_method: sudo
+  become_user: root
+  tasks:
+    - name: Download etcd.tar.gz
+      get_url:
+        url: https://github.com/etcd-io/etcd/releases/download/v3.4.0/etcd-v3.4.0-linux-amd64.tar.gz
+        dest: /tmp/etcd.tar.gz
+
+    - name: uncompress etcd.tar.gz
+      unarchive:
+        src: /tmp/etcd.tar.gz
+        dest: /tmp
+        remote_src: yes
+
+    - name: install etcd
+      copy:
+        src: "/tmp/etcd-v3.4.0-linux-amd64/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        mode: 755
+        remote_src: yes
+      with_items:
+        - etcd
+        - etcdctl
+
+    - name: create etcd directory
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      with_items:
+        - '/etc/etcd'
+        - '/var/lib/etcd'
+
+    - name: copy SSL cert to /etc/etcd
+      copy:
+        src: "/root/{{ item }}"
+        dest: "/etc/etcd/"
+        remote_src: yes
+      with_items:
+        - ca.pem
+        - kubernetes-key.pem
+        - kubernetes.pem 
+      
+    # controller-0=https://controller-0-ip:2380,controller-1=https://controller-1-ip:2380,controller-2=https://controller-2-ip:2380
+    - name: set etcd cluster string
+      set_fact:
+        initial_cluster_string: "{{ initial_cluster_string | default('') }}{{ item.name }}=https://{{ item.private_ip }}:2380,"
+      loop: "{{ controller_instances }}"
+
+    - name: hack around etcd string
+      set_fact:
+        initial_cluster_string: "{{ initial_cluster_string[:-1] }}"
+
+    - name: debug
+      debug: msg="{{ initial_cluster_string }}"
+
+    - name: create etcd.service systemd unit file
+      template:
+        src: etcd.service.j2
+        dest: /etc/systemd/system/etcd.service
+      notify:
+        - reload systemd configs
+        - enable and start etcd service 
+
+# bootstrap controller
+# https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/master/docs/08-bootstrapping-kubernetes-controllers.md
+    - name: create kubernetes config directory
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      with_items:
+        - '/etc/kubernetes/config'
+        - '/var/lib/kubernetes'
+
+    - name: copy SSL cert to /var/lib/kubernetes/
+      copy:
+        src: "/root/{{ item }}"
+        dest: "/var/lib/kubernetes/"
+        remote_src: yes
+      with_items:
+        - ca.pem
+        - ca-key.pem
+        - kubernetes-key.pem
+        - kubernetes.pem 
+        - service-account-key.pem
+        - service-account.pem
+        - encryption-config.yaml
+
+    - name: Download kubernetes controller binaries
+      get_url:
+        url: "{{ item }}"
+        dest: /usr/local/bin/
+        mode: 0755
+      with_items:
+        - "https://storage.googleapis.com/kubernetes-release/release/v1.15.3/bin/linux/amd64/kube-apiserver"
+        - "https://storage.googleapis.com/kubernetes-release/release/v1.15.3/bin/linux/amd64/kube-controller-manager"
+        - "https://storage.googleapis.com/kubernetes-release/release/v1.15.3/bin/linux/amd64/kube-scheduler"
+        - "https://storage.googleapis.com/kubernetes-release/release/v1.15.3/bin/linux/amd64/kubectl"
+
+    - name: set etcd server list
+      set_fact:
+        etc_server_list_string: "{{ etc_server_list_string | default('') }}https://{{ item.private_ip }}:2379,"
+      loop: "{{ controller_instances }}"
+
+    # remove the , from the end of line
+    - name: hack around etcd server list string
+      set_fact:
+        etc_server_list_string: "{{ etc_server_list_string[:-1] }}"
+
+    - name: create kube-apiserver.service systemd unit file
+      template:
+        src: kube-apiserver.service.j2
+        dest: /etc/systemd/system/kube-apiserver.service
+      notify:
+        - reload systemd configs
+        - enable and start kube-apiserver
+
+    - name: move kube-controller-manager.kubeconfig to /var/lib/kubernetes/
+      copy:
+        src: /root/kube-controller-manager.kubeconfig
+        dest: /var/lib/kubernetes/
+        remote_src: yes
+      notify:
+        - enable and start kube-controller-manager
+
+    - name: create kube-controller-manager.service systemd unit file
+      template:
+        src: kube-controller-manager.service.j2
+        dest: /etc/systemd/system/kube-controller-manager.service
+      notify:
+        - reload systemd configs
+        - enable and start kube-controller-manager
+
+    - name: move kube-scheduler.kubeconfig to /var/lib/kubernetes/
+      copy:
+        src: /root/kube-scheduler.kubeconfig
+        dest: /var/lib/kubernetes/
+        remote_src: yes
+      notify:
+        - enable and start kube-scheduler
+
+    - name: create kube-scheduler.yaml configuration file
+      template:
+        src: kube-scheduler.yaml.j2
+        dest: /etc/kubernetes/config/kube-scheduler.yaml
+      notify:
+        - enable and start kube-scheduler
+
+    - name: create kube-scheduler.service systemd unit file
+      template:
+        src: kube-scheduler.service.j2
+        dest: /etc/systemd/system/kube-scheduler.service
+      notify:
+        - reload systemd configs
+        - enable and start kube-scheduler
+
+# TODO
+#    - name: check if services are enabled, add notify if not
+#    - name: check if services are running, add notify if not
+
+
+# https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/master/docs/08-bootstrapping-kubernetes-controllers.md#enable-http-health-checks
+    - name: apt-get update before installing nginx
+      apt:
+        update_cache: yes
+
+    - name: Install latest nginx
+      apt:
+        name: nginx
+        state: latest
+        install_recommends: no
+
+    - name: copy nginx config to /etc/nginx/sites-available/kubernetes.default.svc.cluster.local
+      copy:
+        src: nginx.kubernetes.default.svc.cluster.local.conf
+        dest: /etc/nginx/sites-available/
+
+    - name: Create a symbolic link to enable nginx virtual site
+      file:
+        src: /etc/nginx/sites-available/nginx.kubernetes.default.svc.cluster.local.conf
+        dest: /etc/nginx/sites-enabled/nginx.kubernetes.default.svc.cluster.local.conf
+        state: link
+ 
+    - name: enable and start nginx
+      systemd:
+        name: nginx
+        enabled: yes
+        state: restarted
+
+#    - name: validate kubectl
+#      shell: kubectl get componentstatuses --kubeconfig /root/admin.kubeconfig
+#      register: kubectl_out
+
+#    - name: debug validate kubectl
+#      debug: msg="{{ kubectl_out }}"
+
+  handlers:
+    - name: reload systemd configs
+      systemd:
+        daemon_reload: yes
+      listen: "reload systemd configs"
+
+    - name: enable and start etcd service 
+      systemd:
+        name: etcd
+        enabled: yes
+        state: restarted
+      listen: "enable and start etcd service"
+
+    - name: enable and start kube-apiserver
+      systemd:
+        name: kube-apiserver
+        enabled: yes
+        state: restarted
+      listen: "enable and start kube-apiserver"
+
+    - name: enable and start kube-controller-manager
+      systemd:
+        name: kube-controller-manager
+        enabled: yes
+        state: restarted
+      listen: "enable and start kube-controller-manager"
+
+    - name: enable and start kube-scheduler
+      systemd:
+        name: kube-scheduler
+        enabled: yes
+        state: restarted
+      listen: "enable and start kube-scheduler"
+
+
+
+# https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/master/docs/08-bootstrapping-kubernetes-controllers.md#rbac-for-kubelet-authorization
+- hosts: controller[0]
+  become: true
+  become_method: sudo
+  become_user: root
+  tasks:
+    - name: copy RBAC Authorization ClusterRole manifest to controller
+      copy:
+        src: rbac.authorization.ClusterRole.yml
+        dest: /root/rbac.ClusterRole.yml
+    
+    - name: copy RBAC Authorization ClusterRoleBinding manifest to controller
+      copy:
+        src: rbac.authorization.ClusterRoleBinding.yml
+        dest: /root/rbac.ClusterRoleBinding.yml
+    
+    - name: run kubectl RBAC for Kubelet Authorization to grant ClusterRole
+      shell: kubectl apply --kubeconfig /root/admin.kubeconfig -f /root/rbac.ClusterRole.yml
+    
+    - name: run kubectl RBAC for Kubelet Authorization to grant ClusterRole
+      shell: kubectl apply --kubeconfig /root/admin.kubeconfig -f /root/rbac.ClusterRoleBinding.yml
+
+- hosts: lb
+  become: true
+  become_method: sudo
+  become_user: root
+  tasks:
+    - name: apt-get update before installing haproxy
+      apt:
+        update_cache: yes
+
+    - name: Install latest haproxy
+      apt:
+        name: haproxy
+        state: latest
+
+    - name: create haproxy config
+      template:
+        src: haproxy.cfg.j2
+        dest: /etc/haproxy/haproxy.cfg
+
+    - name: enable and restart haproxy service 
+      systemd:
+        name: haproxy
+        enabled: yes
+        state: restarted
+

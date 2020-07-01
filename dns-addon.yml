@@ -1,0 +1,9 @@
+#https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/master/docs/12-dns-addon.md
+- hosts: controller[0]
+  become: true
+  become_method: sudo
+  become_user: root
+  tasks:
+    - name: Install DNS Cluster Add-on
+      shell: kubectl apply -f https://storage.googleapis.com/kubernetes-the-hard-way/coredns.yaml
+

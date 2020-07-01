@@ -1,0 +1,7 @@
+      routes:
+{% for item in worker_instances %}
+{% if item.name != ansible_hostname %}
+      - to: {{ item.pod_cidr }}
+        via: {{ item.private_ip }}
+{% endif %}
+{% endfor %}

@@ -1,0 +1,45 @@
+global
+    maxconn {{ haproxy_global.maxconn }}
+    log /dev/log local0
+    user haproxy
+    group haproxy
+    stats socket {{ haproxy_global.socket }} user haproxy group haproxy mode 660 level admin
+    nbproc 2
+    nbthread 4
+    ssl-default-bind-ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA256
+    ssl-default-bind-options ssl-min-ver TLSv1.2 no-tls-tickets
+
+
+defaults
+    timeout connect 10s
+    timeout client 30s
+    timeout server 30s
+    log global
+    mode http
+    option httplog
+    maxconn 3000
+
+
+{% for frontend in proxy_frontend %}
+frontend {{ frontend.name }}
+    bind {{ hostvars[inventory_hostname]['ansible_' + frontend.bind_interface ]['ipv4']['address'] }}:{{ frontend.bind_port }} {% if frontend.ssl_enabled == 'True' %} {{ frontend.pem_path }} {% endif %}
+    #bind 10.0.0.3:443 ssl crt /etc/ssl/certs/mysite.pem
+    #http-request redirect scheme https unless { ssl_fc }
+    #use_backend api_servers if { path_beg /api/ }
+{% if frontend.mode == 'tcp' %}
+    mode tcp
+{% endif %}
+    default_backend {{ frontend.backend }}
+{% endfor %}
+
+{% for backend in proxy_backend %}
+backend {{ backend.name }}
+    balance roundrobin
+    #option httpchk HEAD /
+{% if backend.mode == 'tcp' %}
+    mode tcp
+{% endif %}
+{% for member in backend.members %}
+    server {{ member.name }} {{ member.private_ip }}:{{ backend.port }}
+{% endfor %}
+{% endfor %}

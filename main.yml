@@ -1,0 +1,7 @@
+- include: role-dependency.yml
+- include: build-bootstrap-container.yml
+- include: bootstrap-controller.yml
+- include: bootstrap-worker.yml
+- include: pod-network-routes.yml
+- include: dns-addon.yml
+- include: validate.yml
